@@ -48,6 +48,7 @@ use sp_runtime::{
 use pallet_oracle;
 use pallet_session;
 use pallet_timestamp;
+use pallet_validator;
 use types_derive::type_alias;
 
 #[macro_use]
@@ -80,16 +81,13 @@ pub mod benchmarking;
 #[cfg(test)]
 mod tests;
 
-/// Type for linking sessions to validators.
-#[type_alias]
-pub type SubstrateId = AccountId32;
-
 /// Configure the pallet by specifying the parameters and types on which it depends.
 pub trait Config:
     frame_system::Config
     + CreateSignedTransaction<Call<Self>>
     + pallet_timestamp::Config
     + pallet_oracle::Config
+    + pallet_validator::Config
 {
     /// Because this pallet emits events, it depends on the runtime's definition of an event.
     type Event: From<Event> + Into<<Self as frame_system::Config>::Event>;
@@ -108,9 +106,6 @@ pub trait Config:
     /// Placate substrate's `HandleLifetime` trait.
     type AccountStore: StoredMap<SubstrateId, ()>;
 
-    /// Associated type which allows us to interact with substrate Sessions.
-    type SessionInterface: self::SessionInterface<SubstrateId>;
-
     /// Weight information for extrinsics in this pallet.
     type WeightInfo: WeightInfo;
 }
@@ -122,15 +117,6 @@ decl_storage! {
 
         /// A possible next code hash which is used to accept code provided to SetNextCodeViaHash.
         AllowedNextCodeHash get(fn allowed_next_code_hash): Option<CodeHash>;
-
-        /// The upcoming session at which to tell the sessions pallet to rotate the validators.
-        NextSessionIndex get(fn next_session_index): SessionIndex;
-
-        /// The upcoming set of allowed validators, and their associated keys (or none).
-        NextValidators get(fn next_validators): map hasher(blake2_128_concat) SubstrateId => Option<ValidatorKeys>;
-
-        /// The current set of allowed validators, and their associated keys.
-        Validators get(fn validators): map hasher(blake2_128_concat) SubstrateId => Option<ValidatorKeys>;
 
         /// An index to track interest earned by CASH holders and owed by CASH borrowers.
         /// Note - the implementation of Default for CashIndex returns ONE. This also provides
@@ -203,7 +189,7 @@ decl_storage! {
         /// The asset metadata for each supported asset, which will also be synced with the starports.
         SupportedAssets get(fn asset): map hasher(blake2_128_concat) ChainAsset => Option<AssetInfo>;
 
-        /// Miner of the current block.
+        /// Miner of the current block. -- maybe?
         Miner get(fn miner): Option<ChainAccount>;
 
         /// Mapping of total principal paid to each miner.
@@ -239,12 +225,10 @@ decl_storage! {
 
     add_extra_genesis {
         config(assets): Vec<AssetInfo>;
-        config(validators): Vec<ValidatorKeys>;
         config(starports): Vec<ChainAccount>;
         config(genesis_blocks): Vec<ChainBlock>;
         build(|config| {
             Pallet::<T>::initialize_assets(config.assets.clone());
-            Pallet::<T>::initialize_validators(config.validators.clone());
             Pallet::<T>::initialize_starports(config.starports.clone());
             Pallet::<T>::initialize_genesis_blocks(config.genesis_blocks.clone());
         })
@@ -324,9 +308,6 @@ decl_event!(
         /// A supported asset has been modified. [asset_info]
         AssetModified(AssetInfo),
 
-        /// A new validator set has been chosen. [validators]
-        ChangeValidators(Vec<ValidatorKeys>),
-
         /// A new yield rate has been chosen. [next_rate, next_start_at]
         SetYieldNext(APR, Timestamp),
 
@@ -343,154 +324,6 @@ fn check_failure<T: Config>(res: Result<(), Reason>) -> Result<(), Reason> {
         log!("Cash Failure {:#?}", err);
     }
     res
-}
-
-pub trait SessionInterface<AccountId>: frame_system::Config {
-    fn has_next_keys(x: AccountId) -> bool;
-    fn rotate_session();
-}
-
-impl<T: Config> SessionInterface<SubstrateId> for T
-where
-    T: pallet_session::Config<ValidatorId = SubstrateId>,
-{
-    fn has_next_keys(x: SubstrateId) -> bool {
-        match <pallet_session::Module<T>>::next_keys(x as T::ValidatorId) {
-            Some(_keys) => true,
-            None => false,
-        }
-    }
-
-    fn rotate_session() {
-        <pallet_session::Module<T>>::rotate_session();
-    }
-}
-
-impl<T: Config> pallet_session::SessionManager<SubstrateId> for Module<T> {
-    // return validator set to use in the next session (aura and grandpa also stage new auths associated w these accountIds)
-    fn new_session(session_index: SessionIndex) -> Option<Vec<SubstrateId>> {
-        if NextValidators::iter().count() != 0 {
-            NextSessionIndex::put(session_index);
-            Some(NextValidators::iter().map(|x| x.0).collect::<Vec<_>>())
-        } else {
-            Some(Validators::iter().map(|x| x.0).collect::<Vec<_>>())
-        }
-    }
-
-    fn start_session(index: SessionIndex) {
-        // if changes have been queued
-        // if starting the queued session
-        if NextSessionIndex::get() == index && NextValidators::iter().count() != 0 {
-            // delete existing validators
-            for validator in <Validators>::iter_values() {
-                <Validators>::take(&validator.substrate_id);
-            }
-            // push next validators into current validators
-            for (id, validator) in <NextValidators>::iter() {
-                <NextValidators>::take(&id);
-                <Validators>::insert(&id, validator);
-            }
-        } else {
-            ()
-        }
-    }
-    fn end_session(_: SessionIndex) {
-        ()
-    }
-}
-
-/*
--- Block N --
-changeAuth extrinsic, nextValidators set, hold is set, rotate_session is called
-* new_session returns the nextValidators
-
--- Afterwards --
-"ShouldEndSession" returns true when notice era notices were signed
-* when it does, start_session sets Validators = NextValidators
-
-*/
-
-fn vec_to_set<T: Ord + Debuggable>(a: Vec<T>) -> BTreeSet<T> {
-    let mut a_set = BTreeSet::<T>::new();
-    for v in a {
-        a_set.insert(v);
-    }
-    return a_set;
-}
-
-fn has_requisite_signatures(notice_state: NoticeState, validators: &Vec<ValidatorKeys>) -> bool {
-    match notice_state {
-        NoticeState::Pending { signature_pairs } => match signature_pairs {
-            ChainSignatureList::Eth(signature_pairs) => {
-                // Note: inefficient, probably best to store as sorted lists / zip compare
-                type EthAddrType = <chains::Ethereum as chains::Chain>::Address;
-                let signature_set =
-                    vec_to_set::<EthAddrType>(signature_pairs.iter().map(|p| p.0).collect());
-                let validator_set =
-                    vec_to_set::<EthAddrType>(validators.iter().map(|v| v.eth_address).collect());
-                chains::has_super_majority::<EthAddrType>(&signature_set, &validator_set)
-            }
-            _ => false,
-        },
-        _ => false,
-    }
-}
-
-// periodic except when new authorities are pending and when an era notice has just been completed
-impl<T: Config> pallet_session::ShouldEndSession<T::BlockNumber> for Module<T> {
-    fn should_end_session(now: T::BlockNumber) -> bool {
-        if NextValidators::iter().count() > 0 {
-            // Check if we should end the hold
-            let validators: Vec<_> = Validators::iter().map(|v| v.1).collect();
-            let every_notice_hold_executed = NoticeHolds::iter().all(|(chain_id, notice_id)| {
-                has_requisite_signatures(NoticeStates::get(chain_id, notice_id), &validators)
-            });
-
-            if every_notice_hold_executed {
-                for (chain_id, _) in NoticeHolds::iter() {
-                    NoticeHolds::take(chain_id);
-                }
-                log!("should_end_session=true[next_validators]");
-                true
-            } else {
-                log!("should_end_session=false[pending_notice_held]");
-                false
-            }
-        } else {
-            // no era changes pending, periodic
-            let period: T::BlockNumber = <T>::BlockNumber::from(params::SESSION_PERIOD as u32);
-            let is_new_period = (now % period) == <T>::BlockNumber::from(0 as u32);
-
-            if is_new_period {
-                log!(
-                    "should_end_session={}[periodic {:?}%{:?}]",
-                    is_new_period,
-                    now,
-                    period
-                );
-            }
-            is_new_period
-        }
-    }
-}
-
-impl<T: Config> frame_support::traits::EstimateNextSessionRotation<T::BlockNumber> for Module<T> {
-    fn average_session_length() -> T::BlockNumber {
-        T::BlockNumber::zero()
-    }
-
-    fn estimate_current_session_progress(now: T::BlockNumber) -> (Option<Percent>, Weight) {
-        let period: T::BlockNumber = <T>::BlockNumber::from(params::SESSION_PERIOD as u32);
-        (
-            Some(Percent::from_rational(now % period, period)),
-            Weight::zero(),
-        )
-    }
-
-    fn estimate_next_session_rotation(now: T::BlockNumber) -> (Option<T::BlockNumber>, Weight) {
-        let period: T::BlockNumber = <T>::BlockNumber::from(params::SESSION_PERIOD as u32);
-        (Some(now + period - now % period), Weight::zero())
-    }
 }
 
 fn get_exec_req_weights<T: Config>(request: Vec<u8>) -> frame_support::weights::Weight {
@@ -643,18 +476,12 @@ decl_module! {
             }
         }
 
+        // TODO: Move to pallet-validator?
         /// Sets the miner of the this block via inherent
         #[weight = (0, DispatchClass::Operational)]
         fn set_miner(origin, miner: ChainAccount) {
             ensure_none(origin)?;
             internal::miner::set_miner::<T>(miner);
-        }
-
-        /// Sets the keys for the next set of validators beginning at the next session. [Root]
-        #[weight = (<T as Config>::WeightInfo::change_validators(), DispatchClass::Operational, Pays::No)]
-        pub fn change_validators(origin, validators: Vec<ValidatorKeys>) -> dispatch::DispatchResult {
-            ensure_root(origin)?;
-            Ok(check_failure::<T>(internal::change_validators::change_validators::<T>(validators))?)
         }
 
         /// Sets the allowed next code hash to the given hash. [Root]
@@ -774,20 +601,6 @@ impl<T: Config> Module<T> {
         }
     }
 
-    /// Set the initial set of validators from the genesis config.
-    /// NextValidators will become current Validators upon first session start.
-    fn initialize_validators(validators: Vec<ValidatorKeys>) {
-        if validators.is_empty() {
-            warn!("Validators must be set in the genesis config");
-        }
-        for validator in validators {
-            // Note: See pipeline commit for usage of T::AccountStore
-            log!("Adding validator: {:?}", validator);
-            <Validators>::insert(&validator.substrate_id, validator.clone());
-            assert!(T::AccountStore::insert(&validator.substrate_id, ()).is_ok());
-        }
-    }
-
     /// Set the initial starports from the genesis config.
     fn initialize_starports(starports: Vec<ChainStarport>) {
         if starports.is_empty() {
@@ -897,6 +710,7 @@ impl<T: Config> Module<T> {
         Ok(core::get_portfolio::<T>(account)?)
     }
 
+    // This can't be in pallet-validator since it pulls in earnings
     /// Get the active validators, and  sets
     pub fn get_validator_info() -> Result<(Vec<ValidatorKeys>, Vec<(ChainAccount, String)>), Reason>
     {

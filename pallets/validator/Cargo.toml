@@ -1,0 +1,66 @@
+[package]
+authors = ['Compound <https://compound.finance>']
+description = 'Pallet for implementing Open Price Feed.'
+edition = '2018'
+homepage = 'https://compound.cash'
+name = 'pallet-validator'
+repository = 'https://github.com/compound-finance/gateway/'
+version = '1.0.0'
+readme = 'README.md'
+
+[package.metadata.docs.rs]
+targets = ['x86_64-unknown-linux-gnu']
+
+[dependencies]
+codec = { package = 'parity-scale-codec', version = '2.0.0', default-features = false, features = ['derive'] }
+serde = { version = '1.0.125', features = ['derive'], default-features = false }
+serde_json = { version = '1.0.64', features=['alloc'], default-features = false}
+async-trait = { version = "0.1.48", optional = true }
+
+num-bigint = { default-features = false, version = '0.3' }
+num-traits = { default-features = false, version = '0.2' }
+lazy_static = '1.4.0'
+parking_lot = '0.11.1'
+
+ethabi = { version = '12.0.0', default-features = false }
+ethereum-types = { version = '0.11.0', default-features = false }
+hex = { version = '0.4.2', default-features = false }
+hex-literal = {version = '0.3.1', default-features = false}
+libsecp256k1 = { version = '0.3.2', default-features = false, features = ['hmac'] }
+tiny-keccak = { version = '2.0.0', features = ['keccak'], default-features = false }
+
+sp-core = { default-features = false, git = 'https://github.com/compound-finance/substrate', branch = 'jflatow/compound' }
+sp-io = { default-features = false, features = ['disable_oom', 'disable_panic_handler'], git = 'https://github.com/compound-finance/substrate', branch = 'jflatow/compound' }
+sp-inherents = { default-features = false, git = 'https://github.com/compound-finance/substrate.git', branch = 'jflatow/compound' }
+sp-runtime = { default-features = false, git = 'https://github.com/compound-finance/substrate', branch = 'jflatow/compound' }
+frame-support = { default-features = false, git = 'https://github.com/compound-finance/substrate', branch = 'jflatow/compound' }
+frame-system = { default-features = false, git = 'https://github.com/compound-finance/substrate', branch = 'jflatow/compound' }
+pallet-session = { default-features = false, git = 'https://github.com/compound-finance/substrate', branch = 'jflatow/compound' }
+pallet-timestamp = { default-features = false, git = 'https://github.com/compound-finance/substrate.git', branch = 'jflatow/compound' }
+
+runtime-interfaces = { path = '../runtime-interfaces', default-features = false }
+ethereum-client = { path = '../../ethereum-client', default-features = false }
+gateway-crypto = { path = '../../gateway-crypto', default-features = false }
+trx-request = { path = '../../trx-request', default-features = false }
+timestamp = { path = '../../timestamp', default-features = false }
+our-std = { path = '../../our-std', default-features = false }
+
+types-derive = { path = '../../types-derive' }
+
+[features]
+default = ['std']
+std = [
+    'codec/std',
+    'serde/std',
+    'frame-support/std',
+    'frame-system/std',
+    'sp-io/std',
+    'sp-core/std',
+    'sp-runtime/std',
+    'runtime-interfaces/std',
+    'gateway-crypto/std',
+    'our-std/std',
+    'pallet-session/std',
+    'async-trait',
+]
+runtime-debug = ['our-std/runtime-debug']

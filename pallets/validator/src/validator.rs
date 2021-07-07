@@ -1,11 +1,18 @@
 use crate::{
-    internal, reason::Reason, require, types::ValidatorKeys, Config, Event, Module, NextValidators,
-    NoticeHolds, SessionInterface,
+    error::ValidatorError,
+    require, // TODO: Move to own crate?
+    types::ValidatorKeys,
+    Config,
+    Event,
+    Module,
+    NextValidators,
+    SessionInterface,
 };
 use frame_support::storage::{IterableStorageMap, StorageMap};
 
-pub fn change_validators<T: Config>(validators: Vec<ValidatorKeys>) -> Result<(), Reason> {
-    require!(NoticeHolds::iter().count() == 0, Reason::PendingAuthNotice);
+pub fn change_validators<T: Config>(validators: Vec<ValidatorKeys>) -> Result<(), ValidatorError> {
+    // TODO: NoticeHolds dependency
+    // require!(NoticeHolds::iter().count() == 0, Reason::PendingAuthNotice);
 
     for validator in validators.iter() {
         require!(
@@ -23,7 +30,8 @@ pub fn change_validators<T: Config>(validators: Vec<ValidatorKeys>) -> Result<()
 
     <Module<T>>::deposit_event(Event::ChangeValidators(validators.clone()));
 
-    internal::notices::dispatch_change_authority_notice::<T>(validators);
+    // TODO: Another notice dependency
+    // internal::notices::dispatch_change_authority_notice::<T>(validators);
 
     // rotate to the currently queued session, and queue a new session with the new validators in NextValidators
     <T>::SessionInterface::rotate_session();
@@ -34,10 +42,8 @@ pub fn change_validators<T: Config>(validators: Vec<ValidatorKeys>) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        chains::*, notices::*, reason::Reason, tests::*, AccountId32, LatestNotice, NoticeStates,
-        Notices, ValidatorKeys,
-    };
+    use crate::{chains::*, notices::*, reason::Reason, tests::*, AccountId32, ValidatorKeys};
+    // Notices, LatestNotice, NoticeStates,
     use frame_support::storage::{IterableStorageDoubleMap, StorageDoubleMap, StorageMap};
     use mock::opaque::MockSessionKeys;
 

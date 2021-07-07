@@ -95,25 +95,6 @@ pub enum GovernanceResult {
     DispatchFailure(DispatchError),
 }
 
-/// Type for enumerating sessions.
-#[type_alias]
-pub type SessionIndex = u32;
-
-/// Type for an address used to identify a validator.
-#[type_alias]
-pub type ValidatorIdentity = SubstrateId;
-
-/// Type for signers set used to identify validators that signed this event.
-#[type_alias]
-pub type SignersSet = BTreeSet<ValidatorIdentity>;
-
-/// Type for representing the keys to sign notices.
-#[derive(Clone, Eq, PartialEq, Encode, Decode, RuntimeDebug, Types)]
-pub struct ValidatorKeys {
-    pub substrate_id: SubstrateId,
-    pub eth_address: <Ethereum as Chain>::Address,
-}
-
 /// Type for referring to either an asset or CASH.
 #[derive(Copy, Clone, Eq, PartialEq, Encode, Decode, RuntimeDebug, Types)]
 pub enum CashOrChainAsset {
