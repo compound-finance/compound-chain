@@ -100,6 +100,7 @@ pub fn new_partial(
             justification_import: Some(Box::new(grandpa_block_import.clone())),
             client: client.clone(),
             create_inherent_data_providers: move |_, ()| async move {
+                // XXX how can we pass a <T: Config>??
                 let miner = pallet_cash::internal::miner::InherentDataProvider {};
                 let oracle = pallet_oracle::inherent::InherentDataProvider {};
                 let timestamp = sp_timestamp::InherentDataProvider::from_system_time();

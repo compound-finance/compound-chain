@@ -1,4 +1,4 @@
-use crate::{chains::ChainAccount, Call, Config, Miner, Module};
+use crate::{chains::ChainAccount, core, Call, Config, Miner, Module};
 use codec::{Decode, Encode};
 use frame_support::{inherent::ProvideInherent, storage::StorageValue};
 use sp_inherents::{InherentData, InherentIdentifier, IsFatalError};
@@ -39,10 +39,13 @@ impl InherentError {
 
 /// Provide chosen miner address.
 #[cfg(feature = "std")]
-pub struct InherentDataProvider;
+// XXX how do we even get a T here?
+pub struct InherentDataProvider<T: Config> {
+    sentinel: std::marker::PhantomData<T>,
+}
 
 #[cfg(feature = "std")]
-impl std::ops::Deref for InherentDataProvider {
+impl<T: Config> std::ops::Deref for InherentDataProvider<T> {
     type Target = ();
 
     fn deref(&self) -> &Self::Target {
@@ -52,24 +55,16 @@ impl std::ops::Deref for InherentDataProvider {
 
 #[cfg(feature = "std")]
 #[async_trait::async_trait]
-impl sp_inherents::InherentDataProvider for InherentDataProvider {
+impl<T: Config + std::marker::Sync + std::marker::Send> sp_inherents::InherentDataProvider
+    for InherentDataProvider<T>
+{
     fn provide_inherent_data(
         &self,
         inherent_data: &mut InherentData,
     ) -> Result<(), sp_inherents::Error> {
-        let miner_address_str = runtime_interfaces::validator_config_interface::get_miner_address()
-            .ok_or(sp_inherents::Error::Application(Box::from(
-                "no miner address",
-            )))?;
-
-        let miner_address = our_std::str::from_utf8(&miner_address_str).map_err(|_| {
-            sp_inherents::Error::Application(Box::from("invalid miner address bytes"))
-        })?;
-
-        let chain_account: ChainAccount = our_std::str::FromStr::from_str(miner_address)
-            .map_err(|_| sp_inherents::Error::Application(Box::from("invalid miner address")))?;
-
-        inherent_data.put_data(INHERENT_IDENTIFIER, &chain_account)
+        let validator = core::get_current_validator::<T>()
+            .map_err(|_| sp_inherents::Error::Application(Box::from("no miner address")))?;
+        inherent_data.put_data(INHERENT_IDENTIFIER, &validator.miner_address())
     }
 
     async fn try_handle_error(

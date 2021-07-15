@@ -12,7 +12,7 @@ use types_derive::{type_alias, Types};
 pub use pallet_oracle::{ticker::Ticker, types::Price};
 
 pub use crate::{
-    chains::{Chain, ChainAsset, ChainBlockNumber, ChainId, Ethereum},
+    chains::{Chain, ChainAccount, ChainAsset, ChainBlockNumber, ChainId, Ethereum},
     factor::{BigInt, BigUint, Factor},
     notices::{Notice, NoticeId},
     rates::{InterestRateModel, APR},
@@ -112,6 +112,12 @@ pub type SignersSet = BTreeSet<ValidatorIdentity>;
 pub struct ValidatorKeys {
     pub substrate_id: SubstrateId,
     pub eth_address: <Ethereum as Chain>::Address,
+}
+
+impl ValidatorKeys {
+    pub fn miner_address(self) -> ChainAccount {
+        ChainAccount::Gate(self.substrate_id.into())
+    }
 }
 
 /// Type for referring to either an asset or CASH.
